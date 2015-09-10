@@ -6,7 +6,7 @@ Database file
 Offset      Type        Description
 -----------------------------------
 0           byte*       8-byte signature: C7 64 A2 F3 AF DE 56 CD
-8           byte*       16-byte initializion vector
+8           byte*       16-byte initialization vector
 24          uint        AES encrypted section offset (aesoffset)
 28          uint        Number of encrypted secret keys
 32          SecretKey*  The encrypted secret keys (one per recipient)
@@ -37,11 +37,11 @@ Offset          Type    Description
 8               byte*   RSA public key
 <8 + keysize>   byte*   Comment text (no NULL terminator)
 """
+
 import json
-
 import struct
-from Crypto import Random
 
+from Crypto import Random
 from Crypto.Cipher import PKCS1_OAEP, AES
 from Crypto.PublicKey import RSA
 
@@ -59,7 +59,7 @@ class PasswordDatabase(object):
 
     def __init__(self, f=None, private_key=None):
         """
-        Creates the database from a file-like object, with encrypted data. If f is None, will create an empty database
+        Create the database from a file-like object with encrypted data. If f is None, will create an empty database.
         """
 
         self.recipients = []
@@ -67,6 +67,32 @@ class PasswordDatabase(object):
 
         if f:
             self._decrypt_database(f, private_key)
+
+    def __getitem__(self, item):
+        return self._password_store[item]
+
+    def __setitem__(self, item, value):
+        self.set(item, value)
+
+    def __delitem__(self, key):
+        if isinstance(key, str):
+            del self._password_store[key]
+        else:
+            raise KeyError(key)
+
+    def __contains__(self, item):
+            return item in self._password_store
+
+    def get(self, item, default=None):
+        return self._password_store.get(item, default)
+
+    def set(self, item, value):
+        if not isinstance(item, str):
+            raise ValueError('Key must be a string')
+        if not isinstance(value, str):
+            raise ValueError('Value must be a string')
+
+        self._password_store[item] = value
 
     def _decrypt_database(self, f, private_key):
         database_bytes = f.read()
