@@ -88,14 +88,30 @@ class PasswordStore(object):
                 self.lock_id = None
                 self.lock_depth = 0
 
+    def exists(self):
+        self.lock()
+        try:
+            s3_key = self.bucket.get_key(self.key)
+        except S3ResponseError as e:
+            if e.error_code == 404:
+                return False
+            raise
+        finally:
+            self.release()
+
+        return s3_key is not None
+
     def get_database(self, rsa_key):
-        """Returns the database, decrypted."""
+        """Returns the database, decrypted, or None if the database doesn't exist."""
 
         self.lock()
         try:
             s3_key = self.bucket.get_key(self.key)
             f = BytesIO()
             s3_key.get_contents_to_file(f)
+        except S3ResponseError as e:
+            if e.error_code == 404:
+                return None
         finally:
             self.release()
 
