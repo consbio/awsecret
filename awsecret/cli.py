@@ -211,7 +211,45 @@ def get_value(key, name):
     click.echo(database.get(key))
 
 
+@main.command('dump', help='Dump all values to a JSON file.')
+@click.argument('output', type=click.File('w'))
+@click.option('--name', prompt='Profile name')
+def dump_values(output, name):
+    profile = get_profile(name, check_for_keys=True)
+    database = get_database(profile)
 
+    output.write(json.dumps(database._password_store, indent=4))
+
+
+@main.command('load', help='Load values from a JSON file.')
+@click.argument('input', type=click.File('r'))
+@click.option('--name', prompt='Profile name')
+@click.option(
+    '--overwrite/--no-overwrite', default=False, help='Overwrite duplicate values with values from the input file.'
+)
+@click.option(
+    '--truncate/--no-truncate', default=False,
+    help='Erase all existing values in the database before loading from the input file.'
+)
+def load_values(input, name, overwrite, truncate):
+    profile = get_profile(name, check_for_keys=True)
+    storage = get_password_store(profile)
+
+    storage.lock()
+    try:
+        database = get_database(profile, storage)
+        data = json.loads(input.read(), strict=False)
+
+        if truncate:
+            database._password_store = {}
+
+        for key, value in data.items():
+            if overwrite or key not in database:
+                database[key] = value
+
+        storage.set_database(database)
+    finally:
+        storage.release()
 
 
 if __name__ == '__main__':
