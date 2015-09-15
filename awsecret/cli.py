@@ -72,12 +72,12 @@ def main():
         write_profiles({})
 
 
-@main.group(help='Profile management')
-def profile():
+@main.group('profile', help='Profile management')
+def profile_group():
     pass
 
 
-@profile.command('create')
+@profile_group.command('create')
 @click.option('--name', prompt='New profile name')
 @click.option('--aws-access-key', prompt='AWS Access Key')
 @click.option('--aws-secret-key', prompt='AWS Secret Key', hide_input=True)
@@ -101,13 +101,13 @@ def profile_create(name, aws_access_key, aws_secret_key, s3_bucket, s3_key):
     click.echo('Created profile {0}.'.format(name))
 
 
-@profile.command('list')
+@profile_group.command('list')
 def profile_list():
     profiles = get_profiles()
     click.echo('\n'.join(profiles.keys()))
 
 
-@profile.command('remove')
+@profile_group.command('remove')
 @click.option('--name', prompt='Profile name')
 def profile_remove(name):
     profiles = get_profiles()
@@ -118,7 +118,7 @@ def profile_remove(name):
     click.echo('Removed profile {0}'.format(name))
 
 
-@profile.command('keygen')
+@profile_group.command('keygen')
 @click.option('--name', prompt='Profile name')
 @click.option('--size', type=int, default=4096)
 def profile_keygen(name, size):
@@ -151,7 +151,7 @@ def profile_keygen(name, size):
     click.echo('Key pair created. Your public key is:\n\n{0}'.format(public_key.exportKey('OpenSSH').decode()))
 
 
-@profile.command('export-public-key')
+@profile_group.command('export-public-key')
 @click.option('--name', prompt='Profile name')
 def profile_export_public_key(name):
     profile = get_profile(name, check_for_keys=True)
