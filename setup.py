@@ -1,10 +1,11 @@
 from setuptools import setup
+from awsecret import VERSION
 
 setup(
     name='awsecret',
     description='Secure credential storage in S3.',
     keywords='password,aws,s3,credentials,encryption',
-    version='0.1.0',
+    version=VERSION,
     packages=['awsecret'],
     requires=['pycrypto', 'boto', 'click'],
     url='https://github.com/consbio/awsecret',
