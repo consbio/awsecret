@@ -274,7 +274,7 @@ def keys_list(name):
 
     for recipient in database.recipients:
         key_str = recipient.public_key.exportKey('OpenSSH').decode()
-        click.echo('{0}    {1} ...'.format(recipient.comment, key_str[-20:]))
+        click.echo('{0}    ...{1}'.format(recipient.comment, key_str[-20:]))
 
 
 @keys_group.command('add', help='Add a key to the database.')
@@ -304,7 +304,7 @@ def keys_remove(name):
 
     for i, recipient in enumerate(database.recipients):
         key_str = recipient.public_key.exportKey('OpenSSH').decode()
-        click.echo('{0}: {1}    {2}'.format(i+ 1, recipient.comment, key_str[-20:]))
+        click.echo('{0}: {1}    ...{2}'.format(i+ 1, recipient.comment, key_str[-20:]))
 
     idx = click.prompt('Which key do you want to remove? (1 - {0})'.format(len(database.recipients)), type=int)
     if idx < 1 or idx > len(database.recipients):
