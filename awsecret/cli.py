@@ -152,12 +152,13 @@ def profile_keygen(name, size):
 
 
 @profile_group.command('export-public-key')
+@click.argument('output', type=click.File('w'))
 @click.option('--name', prompt='Profile name')
-def profile_export_public_key(name):
+def profile_export_public_key(output, name):
     profile = get_profile(name, check_for_keys=True)
 
     public_key = decode_key(profile['rsa']['public_key'])
-    click.echo(public_key.exportKey('OpenSSH').decode())
+    output.write(public_key.exportKey('OpenSSH').decode())
 
 
 @main.command('initdb', help='Create an empty password database.')
@@ -246,6 +247,67 @@ def load_values(input, name, overwrite, truncate):
         for key, value in data.items():
             if overwrite or key not in database:
                 database[key] = value
+
+        storage.set_database(database)
+    finally:
+        storage.release()
+
+
+@main.group('keys', help='Manage keys in the database.')
+def keys_group():
+    pass
+
+
+@keys_group.command('list', help='List keys in the database.')
+@click.option('--name', prompt='Profile name')
+def keys_list(name):
+    profile = get_profile(name, check_for_keys=True)
+    database = get_database(profile)
+
+    for recipient in database.recipients:
+        key_str = recipient.public_key.exportKey('OpenSSH').decode()
+        click.echo('{0}    {1} ...'.format(recipient.comment, key_str[-20:]))
+
+
+@keys_group.command('add', help='Add a key to the database.')
+@click.argument('input', type=click.File('r'))
+@click.option('--name', prompt='Profile name')
+@click.option('--comment', prompt='Key comment (e.g., user email)')
+def keys_add(input, name, comment):
+    profile = get_profile(name, check_for_keys=True)
+    storage = get_password_store(profile)
+
+    storage.lock()
+    try:
+        database = get_database(profile, storage)
+        public_key = RSA.importKey(input.read())
+        database.recipients.append(Recipient(public_key, comment))
+
+        storage.set_database(database)
+    finally:
+        storage.release()
+
+
+@keys_group.command('remove', help='Remove a key from the database.')
+@click.option('--name', prompt='Profile name')
+def keys_remove(name):
+    profile = get_profile(name, check_for_keys=True)
+    database = get_database(profile)
+
+    for i, recipient in enumerate(database.recipients):
+        key_str = recipient.public_key.exportKey('OpenSSH').decode()
+        click.echo('{0}: {1}    {2}'.format(i+ 1, recipient.comment, key_str[-20:]))
+
+    idx = click.prompt('Which key do you want to remove? (1 - {0})'.format(len(database.recipients)), type=int)
+    if idx < 1 or idx > len(database.recipients):
+        raise ValueError('Invalid selection: {0}'.format(idx))
+
+    storage = get_password_store(profile)
+
+    storage.lock()
+    try:
+        database = get_database(profile, storage)
+        del database.recipients[idx-1]
 
         storage.set_database(database)
     finally:
