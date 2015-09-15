@@ -7,24 +7,27 @@ from Crypto.PublicKey import RSA
 from awsecret.database import PasswordDatabase, Recipient
 from awsecret.storage import PasswordStore
 
-PROFILES_PATH = os.path.expanduser(os.path.join('~', '.awsec_profiles.json'))
+USERDATA_PATH = os.path.expanduser(os.path.join('~', '.awsec_userdata.json'))
 
 
-def get_profiles():
-    if os.path.exists(PROFILES_PATH):
-        with open(PROFILES_PATH, 'r') as f:
-            return json.loads(f.read(), strict=False)
+def get_userdata(check_for_keys=False):
+    if os.path.exists(USERDATA_PATH):
+        with open(USERDATA_PATH, 'r') as f:
+            userdata = json.loads(f.read(), strict=False)
+
+            if check_for_keys and 'rsa' not in userdata:
+                raise ValueError('No RSA keys found. Did you run awsec keygen?')
+
+            return userdata
     else:
         return {}
 
 
-def get_profile(name, check_for_keys=False):
-    profile = get_profiles().get(name)
+def get_profile(name):
+    userdata = get_userdata()
+    profile = userdata.get('profiles', {}).get(name)
     if not profile:
         raise click.UsageError('No such profile: {0}'.format(name))
-
-    if check_for_keys and 'rsa' not in profile:
-        raise click.UsageError('No RSA keys in profile. Did you run awsec profile keygen?')
 
     return profile
 
@@ -39,15 +42,19 @@ def decode_key(encoded_key, password=None, tries=0):
             raise click.UsageError('Wrong password')
 
 
-def write_profiles(profiles):
-    with open(PROFILES_PATH, 'w') as f:
+def write_userdata(profiles):
+    with open(USERDATA_PATH, 'w') as f:
         f.write(json.dumps(profiles, indent=4))
 
 
 def write_profile(name, profile):
-    profiles = get_profiles()
-    profiles[name] = profile
-    write_profiles(profiles)
+    userdata = get_userdata()
+
+    if 'profiles' not in userdata:
+        userdata['profiles'] = {}
+
+    userdata['profiles'][name] = profile
+    write_userdata(userdata)
 
 
 def get_password_store(profile):
@@ -55,21 +62,23 @@ def get_password_store(profile):
 
 
 def get_database(profile, storage=None):
+    userdata = get_userdata(check_for_keys=True)
+    private_key = decode_key(userdata['rsa']['key'])
+
     if storage is None:
         storage = get_password_store(profile)
 
     if not storage.exists():
         raise click.UsageError('No database file found. Did you run awsec initdb?')
 
-    private_key = decode_key(profile['rsa']['key'])
     return storage.get_database(private_key)
 
 
 @click.group(help='awsecret command line interface')
 def main():
     # Create empty profiles file if none exists
-    if not get_profiles():
-        write_profiles({})
+    if not get_userdata():
+        write_userdata({})
 
 
 @main.group('profile', help='Profile management')
@@ -84,50 +93,49 @@ def profile_group():
 @click.option('--s3-bucket', prompt='S3 bucket')
 @click.option('--s3-key', prompt='S3 key')
 def profile_create(name, aws_access_key, aws_secret_key, s3_bucket, s3_key):
-    profiles = get_profiles()
+    profiles = get_userdata().get('profiles', {})
 
     if name in profiles:
         click.confirm('The profile {0} already exists. Overwrite?'.format(name), abort=True)
 
-    profiles[name] = {
+    profile = {
         'aws_access_key': aws_access_key,
         'aws_secret_key': aws_secret_key,
         's3_bucket': s3_bucket,
         's3_key': s3_key
     }
 
-    write_profiles(profiles)
+    write_profile(name, profile)
 
     click.echo('Created profile {0}.'.format(name))
 
 
 @profile_group.command('list')
 def profile_list():
-    profiles = get_profiles()
+    profiles = get_userdata().get('profiles', {})
     click.echo('\n'.join(profiles.keys()))
 
 
 @profile_group.command('remove')
 @click.option('--name', prompt='Profile name')
 def profile_remove(name):
-    profiles = get_profiles()
+    userdata = get_userdata()
     get_profile(name)
 
-    del profiles[name]
-    write_profiles(profiles)
+    del userdata.get('profiles', {})[name]
+    write_userdata(userdata)
     click.echo('Removed profile {0}'.format(name))
 
 
-@profile_group.command('keygen')
-@click.option('--name', prompt='Profile name')
+@main.command('keygen')
 @click.option('--size', type=int, default=4096)
-def profile_keygen(name, size):
-    profile = get_profile(name)
+def profile_keygen(size):
+    userdata = get_userdata()
 
-    if 'rsa' in profile:
+    if 'rsa' in userdata:
         click.confirm('This profile already has an RSA key pair. Do you want to replace it?', abort=True)
         click.confirm(
-            'Are you sure? This will make the existing password database inaccessible and cannot be undone!',
+            'Are you sure? This make make any existing password databases inaccessible and cannot be undone!',
             abort=True
         )
 
@@ -141,23 +149,22 @@ def profile_keygen(name, size):
     key = RSA.generate(size)
     public_key = key.publickey()
 
-    profile['rsa'] = {
+    userdata['rsa'] = {
         'key': b64encode(key.exportKey('PEM', passphrase=password or None)).decode(),
         'public_key': b64encode(public_key.exportKey('PEM')).decode()
     }
 
-    write_profile(name, profile)
+    write_userdata(userdata)
 
     click.echo('Key pair created. Your public key is:\n\n{0}'.format(public_key.exportKey('OpenSSH').decode()))
 
 
-@profile_group.command('export-public-key')
+@main.command('export-public-key')
 @click.argument('output', type=click.File('w'))
-@click.option('--name', prompt='Profile name')
 def profile_export_public_key(output, name):
-    profile = get_profile(name, check_for_keys=True)
+    userdata = get_userdata(check_for_keys=True)
 
-    public_key = decode_key(profile['rsa']['public_key'])
+    public_key = decode_key(userdata['rsa']['public_key'])
     output.write(public_key.exportKey('OpenSSH').decode())
 
 
@@ -165,8 +172,9 @@ def profile_export_public_key(output, name):
 @click.option('--name', prompt='Profile name')
 @click.option('--email', prompt='Your email address')
 def init_database(name, email):
-    profile = get_profile(name, check_for_keys=True)
-    public_key = decode_key(profile['rsa']['public_key'])
+    userdata = get_userdata(check_for_keys=True)
+    public_key = decode_key(userdata['rsa']['public_key'])
+    profile = get_profile(name)
     storage = get_password_store(profile)
 
     storage.lock()
@@ -188,7 +196,7 @@ def init_database(name, email):
 @click.argument('key')
 @click.argument('value')
 def set_value(key, value, name):
-    profile = get_profile(name, check_for_keys=True)
+    profile = get_profile(name)
     storage = get_password_store(profile)
 
     storage.lock()
@@ -206,7 +214,7 @@ def set_value(key, value, name):
 @click.option('--name', prompt='Profile name')
 @click.argument('key')
 def get_value(key, name):
-    profile = get_profile(name, check_for_keys=True)
+    profile = get_profile(name)
     database = get_database(profile)
 
     click.echo(database.get(key))
@@ -216,7 +224,7 @@ def get_value(key, name):
 @click.argument('output', type=click.File('w'))
 @click.option('--name', prompt='Profile name')
 def dump_values(output, name):
-    profile = get_profile(name, check_for_keys=True)
+    profile = get_profile(name)
     database = get_database(profile)
 
     output.write(json.dumps(database._password_store, indent=4))
@@ -233,7 +241,7 @@ def dump_values(output, name):
     help='Erase all existing values in the database before loading from the input file.'
 )
 def load_values(input, name, overwrite, truncate):
-    profile = get_profile(name, check_for_keys=True)
+    profile = get_profile(name)
     storage = get_password_store(profile)
 
     storage.lock()
@@ -261,7 +269,7 @@ def keys_group():
 @keys_group.command('list', help='List keys in the database.')
 @click.option('--name', prompt='Profile name')
 def keys_list(name):
-    profile = get_profile(name, check_for_keys=True)
+    profile = get_profile(name)
     database = get_database(profile)
 
     for recipient in database.recipients:
@@ -274,7 +282,7 @@ def keys_list(name):
 @click.option('--name', prompt='Profile name')
 @click.option('--comment', prompt='Key comment (e.g., user email)')
 def keys_add(input, name, comment):
-    profile = get_profile(name, check_for_keys=True)
+    profile = get_profile(name)
     storage = get_password_store(profile)
 
     storage.lock()
@@ -291,7 +299,7 @@ def keys_add(input, name, comment):
 @keys_group.command('remove', help='Remove a key from the database.')
 @click.option('--name', prompt='Profile name')
 def keys_remove(name):
-    profile = get_profile(name, check_for_keys=True)
+    profile = get_profile(name)
     database = get_database(profile)
 
     for i, recipient in enumerate(database.recipients):
