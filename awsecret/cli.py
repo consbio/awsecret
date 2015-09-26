@@ -261,6 +261,15 @@ def load_values(input, name, overwrite, truncate):
         storage.release()
 
 
+@main.command('signed-url', help='Generate a signed URL for the database.')
+@click.option('--name', prompt='Profile name')
+def signed_url(name):
+    profile = get_profile(name)
+    storage = get_password_store(profile)
+
+    click.echo(storage.generate_signed_url())
+
+
 @main.group('keys', help='Manage keys in the database.')
 def keys_group():
     pass

@@ -9,6 +9,7 @@ from awsecret.database import PasswordDatabase
 
 LOCK_TTL = 60  # 1 minute
 LOCK_KEY = '{key}.LOCK'
+SIGNED_URL_TTL = 3600  # 1 hour
 
 
 class PasswordStore(object):
@@ -131,3 +132,7 @@ class PasswordStore(object):
             s3_key.set_contents_from_file(f)
         finally:
             self.release()
+
+    def generate_signed_url(self):
+        s3_key = self.bucket.get_key(self.key)
+        return s3_key.generate_url(SIGNED_URL_TTL, query_auth=True)
