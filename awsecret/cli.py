@@ -161,7 +161,7 @@ def profile_keygen(size):
 
 @main.command('export-public-key')
 @click.argument('output', type=click.File('w'))
-def profile_export_public_key(output, name):
+def profile_export_public_key(output):
     userdata = get_userdata(check_for_keys=True)
 
     public_key = decode_key(userdata['rsa']['public_key'])
